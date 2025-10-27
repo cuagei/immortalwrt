@@ -51,13 +51,8 @@ jobs:
           ./scripts/feeds update -a
           ./scripts/feeds install -a
 
-      # 5. 添加自定义 Feeds (Add custom feeds)
-      - name: Add OpenClash feed
-        run: |
-          echo 'src-git openclash https://github.com/vernesong/OpenClash.git' >> feeds.conf.default
-          ./scripts/feeds update openclash
-          ./scripts/feeds install -a -p openclash
-          
+      # 5. 【已移除】添加自定义 Feeds，因为我们将暂时移除 OpenClash
+
       # 6. 生成 .config 文件 (Generate initial .config)
       - name: Generate .config
         run: |
@@ -75,8 +70,8 @@ jobs:
           echo "CONFIG_TARGET_PROFILE_GENERIC=y" >> $CONFIG_FILE
 
           # 软件包配置 (Packages)
+          # 【已移除】 luci-app-openclash openclash luci-app-udpxy udpxy
           PACKAGES="luci-base luci-mod-admin-full uhttpd luci-i18n-base-zh-cn luci-theme-bootstrap \
-                    luci-app-openclash openclash luci-app-udpxy udpxy \
                     kmod-fs-ext4 block-mount kmod-usb-storage kmod-usb-core \
                     kmod-usb-ohci kmod-usb-uhci firewall iptables ip6tables luci-app-firewall"
           
@@ -95,13 +90,9 @@ jobs:
           echo "CONFIG_PACKAGE_luci-theme-openwrt=y" >> $CONFIG_FILE
 
           # 【最终关键修复】强制禁用所有 Rust 工具链和相关依赖
-          # 1. 禁用针对目标设备的 Rust 包
           echo "CONFIG_PACKAGE_rust=n" >> $CONFIG_FILE
           echo "CONFIG_HAS_RUST=n" >> $CONFIG_FILE
-          # 2. 禁用所有可能被依赖启用的 HOST Rust 组件（这是导致失败的根本原因）
-          # 这会移除所有以 CONFIG_HOST_PACKAGE_RUST 开头的行
           sed -i '/CONFIG_HOST_PACKAGE_RUST/d' $CONFIG_FILE
-          # 这会移除所有以 CONFIG_HOST_RUST 开头的行
           sed -i '/CONFIG_HOST_RUST/d' $CONFIG_FILE
           
           # 确保配置生效
@@ -129,18 +120,7 @@ jobs:
           echo 'uci commit network' >> "$UCI_SCRIPT"
           echo '/etc/init.d/network restart # 重启网络服务使静态IP生效' >> "$UCI_SCRIPT"
           echo '' >> "$UCI_SCRIPT"
-          echo '# 3. 启用 OpenClash 和 udpxy' >> "$UCI_SCRIPT"
-          echo 'uci set openclash.config.enable_openclash="1"' >> "$UCI_SCRIPT"
-          echo 'uci commit openclash' >> "$UCI_SCRIPT"
-          echo '/etc/init.d/openclash enable' >> "$UCI_SCRIPT"
-          echo '/etc/init.d/openclash start' >> "$UCI_SCRIPT"
-          echo '' >> "$UCI_SCRIPT"
-          echo 'uci set udpxy.udpxy.enabled="1"' >> "$UCI_SCRIPT"
-          echo 'uci set udpxy.udpxy.port="4022"' >> "$UCI_SCRIPT"
-          echo 'uci commit udpxy' >> "$UCI_SCRIPT"
-          echo '/etc/init.d/udpxy enable' >> "$UCI_SCRIPT"
-          echo '/etc/init.d/udpxy start' >> "$UCI_SCRIPT"
-          echo '' >> "$UCI_SCRIPT"
+          # 【已移除】OpenClash 和 udpxy 的配置
           echo 'exit 0' >> "$UCI_SCRIPT"
           chmod +x "$UCI_SCRIPT"
 
@@ -153,11 +133,8 @@ jobs:
       - name: Final space cleanup
         run: |
           echo "清理 build_dir 和 tmp 目录以释放最大空间..."
-          # 移除 build_dir (存放编译中间文件)
           rm -rf build_dir/
-          # 移除 tmp (存放编译生成的固件和缓存文件)
           rm -rf tmp/
-          # 重新创建必须的目录
           mkdir -p build_dir tmp
 
           echo "清理后的磁盘空间："
