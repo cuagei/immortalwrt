@@ -88,31 +88,35 @@ jobs:
           make defconfig
 
       # 7. 添加 UCI Defaults 脚本 (Add UCI Defaults)
+      # 【修正】精简 UCI 脚本并移除可能引起解析错误的空行/缩进问题
       - name: Add UCI Defaults for custom settings
         run: |
           mkdir -p files/etc/uci-defaults
           cat > files/etc/uci-defaults/99_custom_config << 'EOF'
 #!/bin/sh
+# 1. LuCI 语言
 uci set luci.main.lang='zh_CN'
 uci commit luci
-# 静态 IP 192.168.1.250
+
+# 2. 静态 IP 192.168.1.250
 uci set network.lan.ipaddr='192.168.1.250'
 uci set network.lan.netmask='255.255.255.0'
 uci set network.lan.proto='static'
 uci commit network
-ifdown lan; ifup lan
+/etc/init.d/network restart # 重启网络服务使静态IP生效
 
-# 启用 OpenClash 和 udpxy
+# 3. 启用 OpenClash 和 udpxy
 uci set openclash.config.enable_openclash='1'
-uci set openclash.config.cfw_enabled='1'
 uci commit openclash
 /etc/init.d/openclash enable
 /etc/init.d/openclash start
+
 uci set udpxy.udpxy.enabled='1'
 uci set udpxy.udpxy.port='4022'
 uci commit udpxy
 /etc/init.d/udpxy enable
 /etc/init.d/udpxy start
+
 exit 0
 EOF
           chmod +x files/etc/uci-defaults/99_custom_config
@@ -125,7 +129,6 @@ EOF
           make -j${BUILD_THREADS} V=s
 
       # 9. 整理并压缩产物 (Package artifacts)
-      # 【已修正】确保 ls 即使失败也不会中断脚本，解决 YAML 报错问题
       - name: Package artifacts
         run: |
           cd bin/targets/arm64/generic
