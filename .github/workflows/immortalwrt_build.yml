@@ -21,8 +21,10 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          repository: immortalwrt/immortalwrt # 确保拉取官方仓库作为基线
-          ref: openwrt-24.10 # 使用您指定的 openwrt-24.10 分支
+          # 确保拉取官方仓库作为基线
+          repository: immortalwrt/immortalwrt
+          # 使用您指定的 openwrt-24.10 分支
+          ref: openwrt-24.10
 
       # 2. 设置环境 (Setting up environment)
       - name: Set up build environment
@@ -123,16 +125,18 @@ EOF
           make -j${BUILD_THREADS} V=s
 
       # 9. 整理并压缩产物 (Package artifacts)
+      # 【已修正】确保 ls 即使失败也不会中断脚本，解决 YAML 报错问题
       - name: Package artifacts
         run: |
           cd bin/targets/arm64/generic
-          # 找到我们需要的 img.gz 文件
-          IMG_FILE=$(ls openwrt-*-arm64-generic-ext4-combined.img.gz)
-          if [ -f "$IMG_FILE" ]; then
+          # 找到我们需要的 img.gz 文件。使用 2>/dev/null || echo "" 确保找不到文件时脚本不会立即退出。
+          IMG_FILE=$(ls openwrt-*-arm64-generic-ext4-combined.img.gz 2>/dev/null || echo "")
+
+          if [ -n "$IMG_FILE" ]; then
               # 创建一个 ZIP 包包含固件和 .config
               zip -r build_artifacts.zip "$IMG_FILE"
           else
-              echo "::error file=Compile firmware::Could not find the target image file: openwrt-*-arm64-generic-ext4-combined.img.gz"
+              echo "::error file=Compile firmware::Could not find the target image file: openwrt-*-arm64-generic-ext4-combined.img.gz. Compilation might have failed."
               exit 1
           fi
 
