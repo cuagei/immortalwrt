@@ -88,10 +88,11 @@ jobs:
           make defconfig
 
       # 7. 添加 UCI Defaults 脚本 (Add UCI Defaults)
-      # 【修正】精简 UCI 脚本并移除可能引起解析错误的空行/缩进问题
+      # 【修正】确保 Shell 脚本在 << 'EOF' 之后没有缩进，并增加换行
       - name: Add UCI Defaults for custom settings
         run: |
           mkdir -p files/etc/uci-defaults
+          # 修正 Shell 脚本格式，确保 << 'EOF' 之后的行没有额外的缩进
           cat > files/etc/uci-defaults/99_custom_config << 'EOF'
 #!/bin/sh
 # 1. LuCI 语言
