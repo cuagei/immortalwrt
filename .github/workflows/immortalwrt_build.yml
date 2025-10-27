@@ -88,7 +88,7 @@ jobs:
           make defconfig
 
       # 7. 添加 UCI Defaults 脚本 (Add UCI Defaults)
-      # 【最终修正】使用 sed 避免 cat << 'EOF' 带来的 YAML 格式问题，提高稳定性。
+      # 使用 echo 方式写入，避免 YAML 解析问题
       - name: Add UCI Defaults for custom settings
         run: |
           mkdir -p files/etc/uci-defaults
@@ -124,30 +124,47 @@ jobs:
 
           chmod +x "$UCI_SCRIPT"
 
-      # 8. 核心编译步骤 (Compile the firmware)
+      # 8. 核心编译步骤 (Compile firmware)
+      # 【增强】将日志输出到文件 build.log
       - name: Compile firmware
+        id: compile
         run: |
           # V=s 详细输出，-j${BUILD_THREADS} 使用多线程加速
           echo "Start compiling..."
-          make -j${BUILD_THREADS} V=s
+          set -o pipefail # 确保 make 失败时，整个命令失败
+          make -j${BUILD_THREADS} V=s 2>&1 | tee build.log # 同时输出到控制台和日志文件
 
-      # 9. 整理并压缩产物 (Package artifacts)
+      # 9. 失败时打印日志 (Error Report)
+      - name: Print failure log
+        if: ${{ failure() && steps.compile.outcome == 'failure' }}
+        run: |
+          echo "::error::--- 编译失败日志尾部 (最后 50 行) ---"
+          tail -n 50 build.log
+          echo "::error::------------------------------------------"
+          
+      # 10. 整理并压缩产物 (Package artifacts)
+      # 依赖于步骤 8 成功
       - name: Package artifacts
+        if: success()
         run: |
           cd bin/targets/arm64/generic
           # 找到我们需要的 img.gz 文件。使用 2>/dev/null || echo "" 确保找不到文件时脚本不会立即退出。
           IMG_FILE=$(ls openwrt-*-arm64-generic-ext4-combined.img.gz 2>/dev/null || echo "")
 
           if [ -n "$IMG_FILE" ]; then
-              # 创建一个 ZIP 包包含固件和 .config
+              # 创建一个 ZIP 包包含固件
               zip -r build_artifacts.zip "$IMG_FILE"
+              echo "::set-output name=found::true"
           else
-              echo "::error file=Compile firmware::Could not find the target image file: openwrt-*-arm64-generic-ext4-combined.img.gz. Compilation might have failed."
+              echo "::error file=Package artifacts::无法找到目标固件文件 openwrt-*-arm64-generic-ext4-combined.img.gz。编译可能未完成或路径错误。"
+              echo "::set-output name=found::false"
               exit 1
           fi
 
-      # 10. 上传固件 (Upload artifacts)
+      # 11. 上传固件 (Upload artifacts)
+      # 依赖于步骤 10 成功找到文件
       - name: Upload firmware to release
+        if: success()
         uses: actions/upload-artifact@v4
         with:
           name: ImmortalWrt_AArch64_192.168.1.250
