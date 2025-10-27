@@ -13,8 +13,8 @@ permissions:
 
 jobs:
   build:
-    # 保持使用更大的虚拟机，以应对编译时的内存和临时存储需求。
-    runs-on: ubuntu-latest-8-cores
+    # 【关键修正】切换回标准的、快速可用的 Runner，但需要配合后续的清理步骤。
+    runs-on: ubuntu-latest
 
     steps:
       # 1. 检出代码 (Checkout)
@@ -29,7 +29,7 @@ jobs:
       # 2. 设置环境 (Setting up environment)
       - name: Set up build environment
         run: |
-          # 增加编译线程，加速编译
+          # 增加编译线程，加速编译。标准 Runner 默认为 2 核。
           echo "BUILD_THREADS=$(nproc)" >> $GITHUB_ENV
           sudo apt update
           sudo apt install -y build-essential subversion git libncurses5-dev zlib1g-dev gawk python3 unzip file wget
@@ -128,7 +128,28 @@ jobs:
 
           chmod +x "$UCI_SCRIPT"
 
-      # 8. 核心编译步骤 (Compile firmware)
+      # 8. 下载所有源代码
+      - name: Download all source packages
+        run: |
+          make download -j$(nproc)
+
+      # 9. 【关键空间优化】清理下载和临时目录以释放空间
+      # 仅保留编译所需的 tar 包，删除不需要的包和临时文件
+      - name: Clean up temporary files
+        run: |
+          echo "清理 build_dir 目录下的临时文件..."
+          find build_dir/ -type f -name "*.o" -delete 2>/dev/null
+          find build_dir/ -type f -name "*.gcda" -delete 2>/dev/null
+          find build_dir/ -type f -name "*.gcno" -delete 2>/dev/null
+          rm -rf build_dir/target-*/compile_log.* 2>/dev/null
+          
+          echo "清理 dl 目录下的文件，仅保留 tar/zip 压缩包..."
+          find dl -type f ! -name '*.tar.*' ! -name '*.zip' ! -name '*.gz' -delete
+          
+          # 显示清理后的磁盘空间，以供验证
+          df -h
+
+      # 10. 核心编译步骤 (Compile firmware)
       # 【增强】将日志输出到文件 build.log
       - name: Compile firmware
         id: compile
@@ -136,9 +157,10 @@ jobs:
           # V=s 详细输出，-j${BUILD_THREADS} 使用多线程加速
           echo "Start compiling..."
           set -o pipefail # 确保 make 失败时，整个命令失败
+          # 由于已在步骤 9 清理，此处直接 make
           make -j${BUILD_THREADS} V=s 2>&1 | tee build.log # 同时输出到控制台和日志文件
 
-      # 9. 失败时打印日志 (Error Report)
+      # 11. 失败时打印日志 (Error Report)
       - name: Print failure log
         if: ${{ failure() && steps.compile.outcome == 'failure' }}
         run: |
@@ -146,8 +168,8 @@ jobs:
           tail -n 50 build.log
           echo "::error::------------------------------------------"
           
-      # 10. 整理并压缩产物 (Package artifacts)
-      # 依赖于步骤 8 成功
+      # 12. 整理并压缩产物 (Package artifacts)
+      # 依赖于步骤 10 成功
       - name: Package artifacts
         if: success()
         run: |
@@ -165,8 +187,8 @@ jobs:
               exit 1
           fi
 
-      # 11. 上传固件 (Upload artifacts)
-      # 依赖于步骤 10 成功找到文件
+      # 13. 上传固件 (Upload artifacts)
+      # 依赖于步骤 12 成功找到文件
       - name: Upload firmware to release
         if: success()
         uses: actions/upload-artifact@v4
