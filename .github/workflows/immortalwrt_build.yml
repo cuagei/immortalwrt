@@ -13,7 +13,7 @@ permissions:
 
 jobs:
   build:
-    # 【关键修正】切换回标准的、快速可用的 Runner，但需要配合后续的清理步骤。
+    # 使用标准的 ubuntu-latest Runner，通过缓存和清理来管理空间
     runs-on: ubuntu-latest
 
     steps:
@@ -21,9 +21,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          # 确保拉取官方仓库作为基线
           repository: immortalwrt/immortalwrt
-          # 使用您指定的 openwrt-24.10 分支
           ref: openwrt-24.10
 
       # 2. 设置环境 (Setting up environment)
@@ -32,28 +30,40 @@ jobs:
           # 增加编译线程，加速编译。标准 Runner 默认为 2 核。
           echo "BUILD_THREADS=$(nproc)" >> $GITHUB_ENV
           sudo apt update
-          sudo apt install -y build-essential subversion git libncurses5-dev zlib1g-dev gawk python3 unzip file wget
+          # 安装 ccache
+          sudo apt install -y build-essential subversion git libncurses5-dev zlib1g-dev gawk python3 unzip file wget ccache
 
-      # 3. 更新 Feeds (Update feeds)
+      # 3. 配置 Cache (缓存)
+      - name: Cache dependencies
+        uses: actions/cache@v4
+        with:
+          # 缓存 dl (源代码包) 和 ccache (编译缓存) 目录
+          path: |
+            dl
+            ccache
+          key: ${{ runner.os }}-immortalwrt-${{ hashFiles('feeds.conf.default', '.config') }}
+          restore-keys: |
+            ${{ runner.os }}-immortalwrt-
+
+      # 4. 更新 Feeds (Update feeds)
       - name: Update feeds
         run: |
           ./scripts/feeds update -a
           ./scripts/feeds install -a
 
-      # 4. 添加自定义 Feeds (Add custom feeds)
+      # 5. 添加自定义 Feeds (Add custom feeds)
       - name: Add OpenClash feed
         run: |
           echo 'src-git openclash https://github.com/vernesong/OpenClash.git' >> feeds.conf.default
           ./scripts/feeds update openclash
           ./scripts/feeds install -a -p openclash
           
-      # 5. 生成 .config 文件 (Generate initial .config)
+      # 6. 生成 .config 文件 (Generate initial .config)
       - name: Generate .config
         run: |
-          # 运行 defconfig 来生成默认配置
           make defconfig
 
-      # 6. 自定义配置 (Customize .config)
+      # 7. 自定义配置 (Customize .config)
       - name: Apply custom configuration
         run: |
           CONFIG_FILE=".config"
@@ -75,7 +85,7 @@ jobs:
               echo "CONFIG_PACKAGE_$pkg=y" >> $CONFIG_FILE
           done
           
-          # 禁用 Argon 主题 (如果默认启用了)
+          # 禁用 Argon 主题
           sed -i '/CONFIG_PACKAGE_luci-theme-argon/d' $CONFIG_FILE
           sed -i '/CONFIG_PACKAGE_luci-app-argon-config/d' $CONFIG_FILE
           echo "CONFIG_PACKAGE_luci-theme-argon=n" >> $CONFIG_FILE
@@ -90,14 +100,15 @@ jobs:
           
           # 确保配置生效
           make defconfig
+          
+          # 启用 ccache
+          echo "CONFIG_CCACHE=y" >> $CONFIG_FILE
+          make defconfig # 再次运行 defconfig 确保 ccache 生效
 
-      # 7. 添加 UCI Defaults 脚本 (Add UCI Defaults)
-      # 使用 echo 方式写入，避免 YAML 解析问题
+      # 8. 添加 UCI Defaults 脚本 (Add UCI Defaults)
       - name: Add UCI Defaults for custom settings
         run: |
           mkdir -p files/etc/uci-defaults
-          
-          # 创建并写入 UCI Defaults 脚本
           UCI_SCRIPT="files/etc/uci-defaults/99_custom_config"
           
           echo '#!/bin/sh' > "$UCI_SCRIPT"
@@ -125,42 +136,34 @@ jobs:
           echo '/etc/init.d/udpxy start' >> "$UCI_SCRIPT"
           echo '' >> "$UCI_SCRIPT"
           echo 'exit 0' >> "$UCI_SCRIPT"
-
           chmod +x "$UCI_SCRIPT"
 
-      # 8. 下载所有源代码
+      # 9. 下载所有源代码（利用缓存，只有缺失的才下载）
       - name: Download all source packages
         run: |
           make download -j$(nproc)
 
-      # 9. 【关键空间优化】清理下载和临时目录以释放空间
-      # 仅保留编译所需的 tar 包，删除不需要的包和临时文件
-      - name: Clean up temporary files
+      # 10. 【最终空间清理】在编译前清理 build_dir/ 和 tmp/ 以释放最大空间
+      - name: Final space cleanup
         run: |
-          echo "清理 build_dir 目录下的临时文件..."
-          find build_dir/ -type f -name "*.o" -delete 2>/dev/null
-          find build_dir/ -type f -name "*.gcda" -delete 2>/dev/null
-          find build_dir/ -type f -name "*.gcno" -delete 2>/dev/null
-          rm -rf build_dir/target-*/compile_log.* 2>/dev/null
-          
-          echo "清理 dl 目录下的文件，仅保留 tar/zip 压缩包..."
-          find dl -type f ! -name '*.tar.*' ! -name '*.zip' ! -name '*.gz' -delete
-          
-          # 显示清理后的磁盘空间，以供验证
+          echo "清理 build_dir 和 tmp 目录以释放最大空间..."
+          rm -rf build_dir/
+          rm -rf tmp/
+          # 重新创建必须的目录
+          mkdir -p build_dir tmp
+
+          echo "清理后的磁盘空间："
           df -h
 
-      # 10. 核心编译步骤 (Compile firmware)
-      # 【增强】将日志输出到文件 build.log
+      # 11. 核心编译步骤 (Compile firmware)
       - name: Compile firmware
         id: compile
         run: |
-          # V=s 详细输出，-j${BUILD_THREADS} 使用多线程加速
           echo "Start compiling..."
-          set -o pipefail # 确保 make 失败时，整个命令失败
-          # 由于已在步骤 9 清理，此处直接 make
-          make -j${BUILD_THREADS} V=s 2>&1 | tee build.log # 同时输出到控制台和日志文件
+          set -o pipefail
+          make -j${BUILD_THREADS} V=s 2>&1 | tee build.log
 
-      # 11. 失败时打印日志 (Error Report)
+      # 12. 失败时打印日志 (Error Report)
       - name: Print failure log
         if: ${{ failure() && steps.compile.outcome == 'failure' }}
         run: |
@@ -168,27 +171,21 @@ jobs:
           tail -n 50 build.log
           echo "::error::------------------------------------------"
           
-      # 12. 整理并压缩产物 (Package artifacts)
-      # 依赖于步骤 10 成功
+      # 13. 整理并压缩产物 (Package artifacts)
       - name: Package artifacts
         if: success()
         run: |
           cd bin/targets/arm64/generic
-          # 找到我们需要的 img.gz 文件。使用 2>/dev/null || echo "" 确保找不到文件时脚本不会立即退出。
           IMG_FILE=$(ls openwrt-*-arm64-generic-ext4-combined.img.gz 2>/dev/null || echo "")
 
           if [ -n "$IMG_FILE" ]; then
-              # 创建一个 ZIP 包包含固件
               zip -r build_artifacts.zip "$IMG_FILE"
-              echo "::set-output name=found::true"
           else
-              echo "::error file=Package artifacts::无法找到目标固件文件 openwrt-*-arm64-generic-ext4-combined.img.gz。编译可能未完成或路径错误。"
-              echo "::set-output name=found::false"
+              echo "::error file=Package artifacts::无法找到目标固件文件。"
               exit 1
           fi
 
-      # 13. 上传固件 (Upload artifacts)
-      # 依赖于步骤 12 成功找到文件
+      # 14. 上传固件 (Upload artifacts)
       - name: Upload firmware to release
         if: success()
         uses: actions/upload-artifact@v4
