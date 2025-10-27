@@ -1,0 +1,145 @@
+name: ImmortalWrt AArch64 固件编译
+
+# 当您手动点击 "Run workflow" 按钮或将代码推送到 main 分支时触发
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+
+# 工作流执行权限
+permissions:
+  contents: write
+
+jobs:
+  build:
+    # 运行在最新的 Ubuntu 环境中
+    runs-on: ubuntu-latest
+
+    steps:
+      # 1. 检出代码 (Checkout)
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          repository: immortalwrt/immortalwrt # 确保拉取官方仓库作为基线
+          ref: openwrt-24.10 # 使用您指定的 openwrt-24.10 分支
+
+      # 2. 设置环境 (Setting up environment)
+      - name: Set up build environment
+        run: |
+          # 增加编译线程，加速编译
+          echo "BUILD_THREADS=$(nproc)" >> $GITHUB_ENV
+          sudo apt update
+          sudo apt install -y build-essential subversion git libncurses5-dev zlib1g-dev gawk python3 unzip file wget
+
+      # 3. 更新 Feeds (Update feeds)
+      - name: Update feeds
+        run: |
+          ./scripts/feeds update -a
+          ./scripts/feeds install -a
+
+      # 4. 添加自定义 Feeds (Add custom feeds)
+      - name: Add OpenClash feed
+        run: |
+          echo 'src-git openclash https://github.com/vernesong/OpenClash.git' >> feeds.conf.default
+          ./scripts/feeds update openclash
+          ./scripts/feeds install -a -p openclash
+          
+      # 5. 生成 .config 文件 (Generate initial .config)
+      - name: Generate .config
+        run: |
+          # 运行 defconfig 来生成默认配置
+          make defconfig
+
+      # 6. 自定义配置 (Customize .config)
+      - name: Apply custom configuration
+        run: |
+          CONFIG_FILE=".config"
+          
+          # 目标平台配置 (AArch64 Generic)
+          sed -i 's/CONFIG_TARGET_.*=y/# CONFIG_TARGET_.* is not set/g' $CONFIG_FILE
+          echo "CONFIG_TARGET_arm64=y" >> $CONFIG_FILE
+          echo "CONFIG_TARGET_arm64_generic=y" >> $CONFIG_FILE
+          echo "CONFIG_TARGET_PROFILE_GENERIC=y" >> $CONFIG_FILE
+
+          # 软件包配置 (Packages)
+          PACKAGES="luci-base luci-mod-admin-full uhttpd luci-i18n-base-zh-cn luci-theme-bootstrap \
+                    luci-app-openclash openclash luci-app-udpxy udpxy \
+                    kmod-fs-ext4 block-mount kmod-usb-storage kmod-usb-core \
+                    kmod-usb-ohci kmod-usb-uhci firewall iptables ip6tables luci-app-firewall"
+          
+          # 启用所需软件包
+          for pkg in $PACKAGES; do
+              echo "CONFIG_PACKAGE_$pkg=y" >> $CONFIG_FILE
+          done
+          
+          # 禁用 Argon 主题 (如果默认启用了)
+          sed -i '/CONFIG_PACKAGE_luci-theme-argon/d' $CONFIG_FILE
+          sed -i '/CONFIG_PACKAGE_luci-app-argon-config/d' $CONFIG_FILE
+          echo "CONFIG_PACKAGE_luci-theme-argon=n" >> $CONFIG_FILE
+          echo "CONFIG_PACKAGE_luci-app-argon-config=n" >> $CONFIG_FILE
+
+          # 启用 Luci 经典主题
+          echo "CONFIG_PACKAGE_luci-theme-openwrt=y" >> $CONFIG_FILE
+
+          # 确保配置生效
+          make defconfig
+
+      # 7. 添加 UCI Defaults 脚本 (Add UCI Defaults)
+      - name: Add UCI Defaults for custom settings
+        run: |
+          mkdir -p files/etc/uci-defaults
+          cat > files/etc/uci-defaults/99_custom_config << 'EOF'
+#!/bin/sh
+uci set luci.main.lang='zh_CN'
+uci commit luci
+# 静态 IP 192.168.1.250
+uci set network.lan.ipaddr='192.168.1.250'
+uci set network.lan.netmask='255.255.255.0'
+uci set network.lan.proto='static'
+uci commit network
+ifdown lan; ifup lan
+
+# 启用 OpenClash 和 udpxy
+uci set openclash.config.enable_openclash='1'
+uci set openclash.config.cfw_enabled='1'
+uci commit openclash
+/etc/init.d/openclash enable
+/etc/init.d/openclash start
+uci set udpxy.udpxy.enabled='1'
+uci set udpxy.udpxy.port='4022'
+uci commit udpxy
+/etc/init.d/udpxy enable
+/etc/init.d/udpxy start
+exit 0
+EOF
+          chmod +x files/etc/uci-defaults/99_custom_config
+
+      # 8. 核心编译步骤 (Compile the firmware)
+      - name: Compile firmware
+        run: |
+          # V=s 详细输出，-j${BUILD_THREADS} 使用多线程加速
+          echo "Start compiling..."
+          make -j${BUILD_THREADS} V=s
+
+      # 9. 整理并压缩产物 (Package artifacts)
+      - name: Package artifacts
+        run: |
+          cd bin/targets/arm64/generic
+          # 找到我们需要的 img.gz 文件
+          IMG_FILE=$(ls openwrt-*-arm64-generic-ext4-combined.img.gz)
+          if [ -f "$IMG_FILE" ]; then
+              # 创建一个 ZIP 包包含固件和 .config
+              zip -r build_artifacts.zip "$IMG_FILE"
+          else
+              echo "::error file=Compile firmware::Could not find the target image file: openwrt-*-arm64-generic-ext4-combined.img.gz"
+              exit 1
+          fi
+
+      # 10. 上传固件 (Upload artifacts)
+      - name: Upload firmware to release
+        uses: actions/upload-artifact@v4
+        with:
+          name: ImmortalWrt_AArch64_192.168.1.250
+          path: bin/targets/arm64/generic/build_artifacts.zip
+          retention-days: 7
