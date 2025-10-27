@@ -94,9 +94,15 @@ jobs:
           # 启用 Luci 经典主题
           echo "CONFIG_PACKAGE_luci-theme-openwrt=y" >> $CONFIG_FILE
 
-          # 【关键修复】禁用 Rust 工具链，以避免 "No space left on device" 错误
+          # 【最终关键修复】强制禁用所有 Rust 工具链和相关依赖
+          # 1. 禁用针对目标设备的 Rust 包
           echo "CONFIG_PACKAGE_rust=n" >> $CONFIG_FILE
           echo "CONFIG_HAS_RUST=n" >> $CONFIG_FILE
+          # 2. 禁用所有可能被依赖启用的 HOST Rust 组件（这是导致失败的根本原因）
+          # 这会移除所有以 CONFIG_HOST_PACKAGE_RUST 开头的行
+          sed -i '/CONFIG_HOST_PACKAGE_RUST/d' $CONFIG_FILE
+          # 这会移除所有以 CONFIG_HOST_RUST 开头的行
+          sed -i '/CONFIG_HOST_RUST/d' $CONFIG_FILE
           
           # 确保配置生效
           make defconfig
@@ -147,7 +153,9 @@ jobs:
       - name: Final space cleanup
         run: |
           echo "清理 build_dir 和 tmp 目录以释放最大空间..."
+          # 移除 build_dir (存放编译中间文件)
           rm -rf build_dir/
+          # 移除 tmp (存放编译生成的固件和缓存文件)
           rm -rf tmp/
           # 重新创建必须的目录
           mkdir -p build_dir tmp
