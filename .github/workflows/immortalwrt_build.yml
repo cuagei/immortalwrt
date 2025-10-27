@@ -88,39 +88,41 @@ jobs:
           make defconfig
 
       # 7. 添加 UCI Defaults 脚本 (Add UCI Defaults)
-      # 【修正】确保 Shell 脚本在 << 'EOF' 之后没有缩进，并增加换行
+      # 【最终修正】使用 sed 避免 cat << 'EOF' 带来的 YAML 格式问题，提高稳定性。
       - name: Add UCI Defaults for custom settings
         run: |
           mkdir -p files/etc/uci-defaults
-          # 修正 Shell 脚本格式，确保 << 'EOF' 之后的行没有额外的缩进
-          cat > files/etc/uci-defaults/99_custom_config << 'EOF'
-#!/bin/sh
-# 1. LuCI 语言
-uci set luci.main.lang='zh_CN'
-uci commit luci
+          
+          # 创建并写入 UCI Defaults 脚本
+          UCI_SCRIPT="files/etc/uci-defaults/99_custom_config"
+          
+          echo '#!/bin/sh' > "$UCI_SCRIPT"
+          echo '# 1. LuCI 语言' >> "$UCI_SCRIPT"
+          echo 'uci set luci.main.lang="zh_CN"' >> "$UCI_SCRIPT"
+          echo 'uci commit luci' >> "$UCI_SCRIPT"
+          echo '' >> "$UCI_SCRIPT"
+          echo '# 2. 静态 IP 192.168.1.250' >> "$UCI_SCRIPT"
+          echo 'uci set network.lan.ipaddr="192.168.1.250"' >> "$UCI_SCRIPT"
+          echo 'uci set network.lan.netmask="255.255.255.0"' >> "$UCI_SCRIPT"
+          echo 'uci set network.lan.proto="static"' >> "$UCI_SCRIPT"
+          echo 'uci commit network' >> "$UCI_SCRIPT"
+          echo '/etc/init.d/network restart # 重启网络服务使静态IP生效' >> "$UCI_SCRIPT"
+          echo '' >> "$UCI_SCRIPT"
+          echo '# 3. 启用 OpenClash 和 udpxy' >> "$UCI_SCRIPT"
+          echo 'uci set openclash.config.enable_openclash="1"' >> "$UCI_SCRIPT"
+          echo 'uci commit openclash' >> "$UCI_SCRIPT"
+          echo '/etc/init.d/openclash enable' >> "$UCI_SCRIPT"
+          echo '/etc/init.d/openclash start' >> "$UCI_SCRIPT"
+          echo '' >> "$UCI_SCRIPT"
+          echo 'uci set udpxy.udpxy.enabled="1"' >> "$UCI_SCRIPT"
+          echo 'uci set udpxy.udpxy.port="4022"' >> "$UCI_SCRIPT"
+          echo 'uci commit udpxy' >> "$UCI_SCRIPT"
+          echo '/etc/init.d/udpxy enable' >> "$UCI_SCRIPT"
+          echo '/etc/init.d/udpxy start' >> "$UCI_SCRIPT"
+          echo '' >> "$UCI_SCRIPT"
+          echo 'exit 0' >> "$UCI_SCRIPT"
 
-# 2. 静态 IP 192.168.1.250
-uci set network.lan.ipaddr='192.168.1.250'
-uci set network.lan.netmask='255.255.255.0'
-uci set network.lan.proto='static'
-uci commit network
-/etc/init.d/network restart # 重启网络服务使静态IP生效
-
-# 3. 启用 OpenClash 和 udpxy
-uci set openclash.config.enable_openclash='1'
-uci commit openclash
-/etc/init.d/openclash enable
-/etc/init.d/openclash start
-
-uci set udpxy.udpxy.enabled='1'
-uci set udpxy.udpxy.port='4022'
-uci commit udpxy
-/etc/init.d/udpxy enable
-/etc/init.d/udpxy start
-
-exit 0
-EOF
-          chmod +x files/etc/uci-defaults/99_custom_config
+          chmod +x "$UCI_SCRIPT"
 
       # 8. 核心编译步骤 (Compile the firmware)
       - name: Compile firmware
