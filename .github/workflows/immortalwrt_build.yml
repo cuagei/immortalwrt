@@ -70,7 +70,6 @@ jobs:
           echo "CONFIG_TARGET_PROFILE_GENERIC=y" >> $CONFIG_FILE
 
           # 软件包配置 (Packages)
-          # 【已移除】 luci-app-openclash openclash luci-app-udpxy udpxy
           PACKAGES="luci-base luci-mod-admin-full uhttpd luci-i18n-base-zh-cn luci-theme-bootstrap \
                     kmod-fs-ext4 block-mount kmod-usb-storage kmod-usb-core \
                     kmod-usb-ohci kmod-usb-uhci firewall iptables ip6tables luci-app-firewall"
@@ -120,7 +119,6 @@ jobs:
           echo 'uci commit network' >> "$UCI_SCRIPT"
           echo '/etc/init.d/network restart # 重启网络服务使静态IP生效' >> "$UCI_SCRIPT"
           echo '' >> "$UCI_SCRIPT"
-          # 【已移除】OpenClash 和 udpxy 的配置
           echo 'exit 0' >> "$UCI_SCRIPT"
           chmod +x "$UCI_SCRIPT"
 
@@ -146,21 +144,43 @@ jobs:
         run: |
           echo "Start compiling..."
           set -o pipefail
+          # 运行编译，并将退出码保存到 COMPILATION_EXIT_CODE
           make -j${BUILD_THREADS} V=s 2>&1 | tee build.log
+          COMPILATION_EXIT_CODE=$?
+          
+          # 将编译结果（成功=0，失败=非0）导出到工作流变量
+          echo "compilation_success=$(if [ $COMPILATION_EXIT_CODE -eq 0 ]; then echo 'true'; else echo 'false'; fi)" >> $GITHUB_OUTPUT
+          
+          # 如果编译失败，明确退出
+          if [ $COMPILATION_EXIT_CODE -ne 0 ]; then
+              echo "::error::编译失败，退出码: $COMPILATION_EXIT_CODE"
+              exit $COMPILATION_EXIT_CODE
+          fi
+        # 允许该步骤在 make 失败时依然完成，以便触发后续的日志打印步骤
+        continue-on-error: true
 
       # 12. 失败时打印日志 (Error Report)
+      # 只有当步骤 11 的退出码非零（失败）时才运行
       - name: Print failure log
-        if: ${{ failure() && steps.compile.outcome == 'failure' }}
+        if: ${{ steps.compile.outputs.compilation_success == 'false' }}
         run: |
           echo "::error::--- 编译失败日志尾部 (最后 50 行) ---"
           tail -n 50 build.log
           echo "::error::------------------------------------------"
           
       # 13. 整理并压缩产物 (Package artifacts)
+      # 只有当步骤 11 的退出码为零（成功）时才运行
       - name: Package artifacts
-        if: success()
+        if: ${{ steps.compile.outputs.compilation_success == 'true' }}
         run: |
-          cd bin/targets/arm64/generic
+          TARGET_DIR="bin/targets/arm64/generic"
+          
+          if [ ! -d "$TARGET_DIR" ]; then
+              echo "::error file=Package artifacts::编译成功但目标目录 $TARGET_DIR 不存在。可能固件生成路径有误。"
+              exit 1
+          fi
+          
+          cd "$TARGET_DIR"
           IMG_FILE=$(ls openwrt-*-arm64-generic-ext4-combined.img.gz 2>/dev/null || echo "")
 
           if [ -n "$IMG_FILE" ]; then
@@ -172,7 +192,7 @@ jobs:
 
       # 14. 上传固件 (Upload artifacts)
       - name: Upload firmware to release
-        if: success()
+        if: ${{ steps.compile.outputs.compilation_success == 'true' }}
         uses: actions/upload-artifact@v4
         with:
           name: ImmortalWrt_AArch64_192.168.1.250
