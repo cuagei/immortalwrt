@@ -13,8 +13,8 @@ permissions:
 
 jobs:
   build:
-    # 运行在最新的 Ubuntu 环境中
-    runs-on: ubuntu-latest
+    # 保持使用更大的虚拟机，以应对编译时的内存和临时存储需求。
+    runs-on: ubuntu-latest-8-cores
 
     steps:
       # 1. 检出代码 (Checkout)
@@ -84,6 +84,10 @@ jobs:
           # 启用 Luci 经典主题
           echo "CONFIG_PACKAGE_luci-theme-openwrt=y" >> $CONFIG_FILE
 
+          # 【关键修复】禁用 Rust 工具链，以避免 "No space left on device" 错误
+          echo "CONFIG_PACKAGE_rust=n" >> $CONFIG_FILE
+          echo "CONFIG_HAS_RUST=n" >> $CONFIG_FILE
+          
           # 确保配置生效
           make defconfig
 
