@@ -69,6 +69,10 @@ jobs:
           echo "CONFIG_TARGET_armsr_armv8=y" >> $CONFIG_FILE
           echo "CONFIG_TARGET_DEVICE_armsr_armv8_DEVICE_generic=y" >> $CONFIG_FILE
 
+          # 根文件系统配置 (启用 ext4 和 squashfs 镜像生成)
+          echo "CONFIG_TARGET_ROOTFS_EXT4=y" >> $CONFIG_FILE
+          echo "CONFIG_TARGET_ROOTFS_SQUASHFS=y" >> $CONFIG_FILE
+
           # 软件包配置 (Packages)
           PACKAGES="luci-base luci-mod-admin-full uhttpd luci-i18n-base-zh-cn luci-theme-bootstrap \
                     kmod-fs-ext4 block-mount kmod-usb-storage kmod-usb-core \
