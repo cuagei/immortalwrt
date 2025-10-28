@@ -65,8 +65,8 @@ jobs:
           
           # 目标平台配置 (AArch64 Generic)
           sed -i 's/CONFIG_TARGET_.*=y/# CONFIG_TARGET_.* is not set/g' $CONFIG_FILE
-          echo "CONFIG_TARGET_arm64=y" >> $CONFIG_FILE
-          echo "CONFIG_TARGET_arm64_generic=y" >> $CONFIG_FILE
+          echo "CONFIG_TARGET_aarch64=y" >> $CONFIG_FILE
+          echo "CONFIG_TARGET_aarch64_generic=y" >> $CONFIG_FILE
           echo "CONFIG_TARGET_PROFILE_GENERIC=y" >> $CONFIG_FILE
 
           # 软件包配置 (Packages)
@@ -164,8 +164,8 @@ jobs:
         # 始终运行此步骤以查看生成了什么
         if: always()
         run: |
-          echo "Listing contents of bin/targets/arm64:"
-          ls -R bin/targets/arm64 || echo "Directory bin/targets/arm64 not found or empty."
+          echo "Listing contents of bin/targets/aarch64:"
+          ls -R bin/targets/aarch64 || echo "Directory bin/targets/aarch64 not found or empty."
           echo "-----------------------------------------"
 
       # 12. 失败时打印日志 (Error Report)
@@ -184,7 +184,7 @@ jobs:
       - name: Package artifacts
         if: ${{ steps.compile.outputs.compilation_success == 'true' }}
         run: |
-          TARGET_DIR="bin/targets/arm64/generic"
+          TARGET_DIR="bin/targets/aarch64/generic"
           
           if [ ! -d "$TARGET_DIR" ]; then
               echo "::error file=Package artifacts::编译成功但目标目录 $TARGET_DIR 不存在。可能固件生成路径有误。"
@@ -192,7 +192,7 @@ jobs:
           fi
           
           cd "$TARGET_DIR"
-          IMG_FILE=$(ls openwrt-*-arm64-generic-ext4-combined.img.gz 2>/dev/null || echo "")
+          IMG_FILE=$(ls openwrt-*-aarch64-generic-ext4-combined.img.gz 2>/dev/null || echo "")
 
           if [ -n "$IMG_FILE" ]; then
               zip -r build_artifacts.zip "$IMG_FILE"
@@ -207,6 +207,5 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: ImmortalWrt_AArch64_192.168.1.250
-          path: bin/targets/arm64/generic/build_artifacts.zip
+          path: bin/targets/aarch64/generic/build_artifacts.zip
           retention-days: 7
-
