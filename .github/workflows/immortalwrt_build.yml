@@ -51,7 +51,7 @@ jobs:
           ./scripts/feeds update -a
           ./scripts/feeds install -a
 
-      # 5. 【已移除】添加自定义 Feeds，因为我们将暂时移除 OpenClash
+      # 5. 【已移除】添加自定义 Feeds
 
       # 6. 生成 .config 文件 (Generate initial .config)
       - name: Generate .config
@@ -151,25 +151,36 @@ jobs:
           # 将编译结果（成功=0，失败=非0）导出到工作流变量
           echo "compilation_success=$(if [ $COMPILATION_EXIT_CODE -eq 0 ]; then echo 'true'; else echo 'false'; fi)" >> $GITHUB_OUTPUT
           
-          # 如果编译失败，明确退出
+          # 如果编译失败，明确退出（但允许步骤继续以便打印日志）
           if [ $COMPILATION_EXIT_CODE -ne 0 ]; then
               echo "::error::编译失败，退出码: $COMPILATION_EXIT_CODE"
-              exit $COMPILATION_EXIT_CODE
+              # exit $COMPILATION_EXIT_CODE # 移除 exit，让工作流继续到打印日志步骤
           fi
-        # 允许该步骤在 make 失败时依然完成，以便触发后续的日志打印步骤
+        # 允许该步骤在 make 失败时依然完成
         continue-on-error: true
 
+      # 【新增】11.5 调试：列出 bin/targets 目录内容
+      - name: List Output Directory Contents (Debug)
+        # 始终运行此步骤以查看生成了什么
+        if: always()
+        run: |
+          echo "Listing contents of bin/targets/arm64:"
+          ls -R bin/targets/arm64 || echo "Directory bin/targets/arm64 not found or empty."
+          echo "-----------------------------------------"
+
       # 12. 失败时打印日志 (Error Report)
-      # 只有当步骤 11 的退出码非零（失败）时才运行
+      # 只有当步骤 11 的输出变量表明失败时才运行
       - name: Print failure log
         if: ${{ steps.compile.outputs.compilation_success == 'false' }}
         run: |
           echo "::error::--- 编译失败日志尾部 (最后 50 行) ---"
           tail -n 50 build.log
           echo "::error::------------------------------------------"
+          # 强制让整个工作流失败
+          exit 1
           
       # 13. 整理并压缩产物 (Package artifacts)
-      # 只有当步骤 11 的退出码为零（成功）时才运行
+      # 只有当步骤 11 的输出变量表明成功时才运行
       - name: Package artifacts
         if: ${{ steps.compile.outputs.compilation_success == 'true' }}
         run: |
@@ -198,3 +209,4 @@ jobs:
           name: ImmortalWrt_AArch64_192.168.1.250
           path: bin/targets/arm64/generic/build_artifacts.zip
           retention-days: 7
+
