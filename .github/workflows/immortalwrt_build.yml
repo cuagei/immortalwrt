@@ -69,9 +69,11 @@ jobs:
           echo "CONFIG_TARGET_armsr_armv8=y" >> $CONFIG_FILE
           echo "CONFIG_TARGET_DEVICE_armsr_armv8_DEVICE_generic=y" >> $CONFIG_FILE
 
-          # 根文件系统配置 (启用 ext4 和 squashfs 镜像生成)
-          echo "CONFIG_TARGET_ROOTFS_EXT4=y" >> $CONFIG_FILE
+          # 根文件系统配置 (优化：优先 squashfs 以提升 PC 兼容性，并固定分区大小)
           echo "CONFIG_TARGET_ROOTFS_SQUASHFS=y" >> $CONFIG_FILE
+          echo "CONFIG_TARGET_IMAGES_SQUASHFS=y" >> $CONFIG_FILE
+          echo "CONFIG_TARGET_ROOTFS_PARTSIZE=1024" >> $CONFIG_FILE  # 根分区 1GB，匹配 U 盘空间
+          echo "CONFIG_GRUB2=y" >> $CONFIG_FILE  # 增强 EFI 引导支持
 
           # 软件包配置 (Packages)
           PACKAGES="luci-base luci-mod-admin-full uhttpd luci-i18n-base-zh-cn luci-theme-bootstrap \
@@ -199,11 +201,15 @@ jobs:
           fi
           
           cd "$TARGET_DIR"
-          # 匹配 ext4 或 squashfs 变体，调整通配符以匹配 ImmortalWrt 命名（无版本前缀）
-          IMG_FILE=$(ls immortalwrt-*-generic-ext4-combined-efi.img.gz immortalwrt-*-generic-squashfs-combined-efi.img.gz 2>/dev/null | head -n1 || echo "")
+          # 优化：优先匹配 squashfs 变体（更兼容 PC），然后 ext4
+          IMG_FILE=$(ls immortalwrt-*-generic-squashfs-combined-efi.img.gz immortalwrt-*-generic-ext4-combined-efi.img.gz 2>/dev/null | head -n1 || echo "")
 
           if [ -n "$IMG_FILE" ]; then
               zip -r build_artifacts.zip "$IMG_FILE"
+              # 生成校验和文件，便于验证
+              sha256sum "$IMG_FILE" > checksum.sha256
+              zip -r build_artifacts.zip checksum.sha256
+              echo "::notice::固件文件: $IMG_FILE (校验和已包含在 ZIP 中)"
           else
               echo "::error file=Package artifacts::无法找到目标固件文件。请检查日志中的生成文件。"
               exit 1
