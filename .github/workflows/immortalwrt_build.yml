@@ -92,6 +92,9 @@ jobs:
           # 启用 Luci 经典主题
           echo "CONFIG_PACKAGE_luci-theme-openwrt=y" >> $CONFIG_FILE
 
+          # 显式禁用 lm-sensors 以避免交叉编译失败
+          echo "CONFIG_PACKAGE_lm-sensors=n" >> $CONFIG_FILE
+
           # 【最终关键修复】强制禁用所有 Rust 工具链和相关依赖
           echo "CONFIG_PACKAGE_rust=n" >> $CONFIG_FILE
           echo "CONFIG_HAS_RUST=n" >> $CONFIG_FILE
