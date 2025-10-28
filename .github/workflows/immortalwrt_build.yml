@@ -196,8 +196,8 @@ jobs:
           fi
           
           cd "$TARGET_DIR"
-          # 匹配 ext4 或 squashfs 变体，包含 efi 后缀
-          IMG_FILE=$(ls openwrt-*-armsr-armv8-generic-ext4-combined-efi.img.gz openwrt-*-armsr-armv8-generic-squashfs-combined-efi.img.gz 2>/dev/null | head -n1 || echo "")
+          # 匹配 ext4 或 squashfs 变体，包含 efi 后缀，使用 ImmortalWrt 前缀
+          IMG_FILE=$(ls immortalwrt-*-armsr-armv8-generic-ext4-combined-efi.img.gz immortalwrt-*-armsr-armv8-generic-squashfs-combined-efi.img.gz 2>/dev/null | head -n1 || echo "")
 
           if [ -n "$IMG_FILE" ]; then
               zip -r build_artifacts.zip "$IMG_FILE"
